@@ -1,7 +1,9 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import solc from 'solc';
 const source=await readFile(new URL('./RescueDelegate.sol',import.meta.url),'utf8');
-const input={language:'Solidity',sources:{'RescueDelegate.sol':{content:source}},settings:{optimizer:{enabled:true,runs:200},outputSelection:{'*':{'*':['abi','evm.bytecode.object','evm.deployedBytecode.object']}}}};
+// The signature validation and transfer share enough locals to exceed the
+// legacy compiler's stack allocation. Compile through the optimized IR pipeline.
+const input={language:'Solidity',sources:{'RescueDelegate.sol':{content:source}},settings:{viaIR:true,optimizer:{enabled:true,runs:200},outputSelection:{'*':{'*':['abi','evm.bytecode.object','evm.deployedBytecode.object']}}}};
 const out=JSON.parse(solc.compile(JSON.stringify(input)));
 const errors=(out.errors||[]).filter(x=>x.severity==='error');if(errors.length)throw Error(errors.map(x=>x.formattedMessage).join('\n'));
 const c=out.contracts['RescueDelegate.sol'].RescueDelegate;
