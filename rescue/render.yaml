@@ -1,0 +1,37 @@
+# Select Blueprint Path: rescue/render.yaml (NOT root render.yaml)
+services:
+  - type: web
+    name: self-rescue-7702-bot
+    runtime: docker
+    plan: 0.5c-512mb
+    region: frankfurt
+    numInstances: 1
+    dockerfilePath: ./rescue/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: 'off'
+    healthCheckPath: /healthz
+    disk:
+      name: rescue-state
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: RESCUE_BOT_TOKEN
+        sync: false
+      - key: RESCUE_OWNER_TELEGRAM_ID
+        sync: false
+      - key: RESCUE_RELAYER_KEY
+        sync: false
+      - key: RESCUE_STATE_FILE
+        value: /app/data/rescue-state.json
+      - key: ENABLE_RESCUE_LIVE
+        value: 'false'
+      - key: RESCUE_PRIVATE_RPC_1
+        value: https://rpc.flashbots.net/fast
+      - key: PORT
+        value: '3001'
+      - key: RESCUE_POLL_MS
+        value: '15000'
+      - key: RESCUE_MAX_TX_PER_DAY
+        value: '5'
+      - key: RESCUE_MAX_GAS_COST_WEI
+        value: '15000000000000000'

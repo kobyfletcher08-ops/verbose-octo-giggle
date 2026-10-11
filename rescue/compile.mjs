@@ -1,0 +1,10 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import solc from 'solc';
+const source=await readFile(new URL('./RescueDelegate.sol',import.meta.url),'utf8');
+const input={language:'Solidity',sources:{'RescueDelegate.sol':{content:source}},settings:{optimizer:{enabled:true,runs:200},outputSelection:{'*':{'*':['abi','evm.bytecode.object','evm.deployedBytecode.object']}}}};
+const out=JSON.parse(solc.compile(JSON.stringify(input)));
+const errors=(out.errors||[]).filter(x=>x.severity==='error');if(errors.length)throw Error(errors.map(x=>x.formattedMessage).join('\n'));
+const c=out.contracts['RescueDelegate.sol'].RescueDelegate;
+if(!c.evm.bytecode.object||!c.evm.deployedBytecode.object)throw Error('Compiler produced no bytecode');
+await writeFile(new URL('./artifact.json',import.meta.url),JSON.stringify({compiler:solc.version(),abi:c.abi,bytecode:'0x'+c.evm.bytecode.object,deployedBytecode:'0x'+c.evm.deployedBytecode.object},null,2));
+console.log('Compiled rescue/artifact.json with',solc.version());
