@@ -142,3 +142,7 @@ Upload the signed `rescue-atlas-base.json` to the existing owner-only Telegram b
 **Important:** If the compromised wallet sends another transaction (including an attacker transaction) between local signing and your rescue inclusion, the authorization nonces can become invalid. The bot checks the current nonce, refuses stale authorizations and requires new local signatures. Neither Ethereum private routing nor a type-4 transaction can guarantee the first included transaction. Custom chains require both EIP-7702 support and a private RPC that accepts type-4 `eth_sendRawTransaction` with multiple authorizations.
 
 Atlas source/audit: https://github.com/Byzantine-Finance/Atlas . Formal authorization semantics: https://eips.ethereum.org/EIPS/eip-7702 .
+
+### Receipt reconciliation
+
+For Atlas ERC-20 recovery, the bot requires a matching `Transfer(source, safe, amount)` event from the expected token contract before calling a confirmed transaction `done`. If no event is found, it marks the job `needs-review` and requires **manual verification of the safe wallet balance**; it will not silently treat an EVM `status: 1` receipt as proof that a nonstandard token actually transferred. Native-value recovery relies on successful EVM execution. The owner remains exposed to attacker nonces and private-relay failures until inclusion.

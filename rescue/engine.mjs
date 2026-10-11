@@ -1,8 +1,21 @@
-import {Wallet,Contract,JsonRpcProvider,keccak256,ZeroAddress,formatEther,parseUnits} from 'ethers';
+import {Wallet,Contract,JsonRpcProvider,keccak256,ZeroAddress,formatEther,parseUnits,id} from 'ethers';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {ABI,IFACE,checkPackage,toJsonJob,parseHttps} from './common.mjs';
 import {ATLAS_ADDRESS,ATLAS_ABI,checkAtlasPackage,atlasToJob,atlasExecution} from './atlas.mjs';
+
+const ERC20_TRANSFER_TOPIC=id('Transfer(address,address,uint256)');
+function atlasTokenTransferSeen(receipt,job){
+  // An ERC-20 can return `false` without reverting. Atlas uses a low-level call,
+  // so receipt.status=1 alone is insufficient evidence for a token rescue.
+  const token=job.rescue.token.toLowerCase();
+  const from='0x'+job.owner.slice(2).toLowerCase().padStart(64,'0');
+  const to='0x'+job.rescue.destination.slice(2).toLowerCase().padStart(64,'0');
+  return (receipt.logs||[]).some(log=>log.address.toLowerCase()===token&&log.topics?.length===3&&
+    log.topics[0].toLowerCase()===ERC20_TRANSFER_TOPIC.toLowerCase()&&
+    log.topics[1].toLowerCase()===from&&log.topics[2].toLowerCase()===to&&
+    /^0x[0-9a-fA-F]+$/.test(log.data)&&BigInt(log.data)>=BigInt(job.rescue.minAmount));
+}
 
 const DEFAULT_CHAINS = [
   {name:'ethereum',chainId:1,rpc:'https://ethereum-rpc.publicnode.com'},
@@ -137,7 +150,14 @@ export class RescueEngine {
         try{
           const {provider}=await this.chain(job.chainId);
           const receipt=await provider.getTransactionReceipt(job.submittedHash);
-          if(receipt){job.status=receipt.status===1?'done':'failed';await this.save();await this.notify(`${job.id}: transaction ${job.status}. Hash: ${job.submittedHash}`)}
+          if(receipt){
+            if(receipt.status!==1)job.status='failed';
+            else if(job.implementation==='atlas'&&job.rescue.token!==ZeroAddress&&!atlasTokenTransferSeen(receipt,job))job.status='needs-review';
+            else job.status='done';
+            await this.save();
+            await this.notify(`${job.id}: transaction ${job.status}. Hash: ${job.submittedHash}`+
+              (job.status==='needs-review'?' No matching ERC-20 Transfer event found; CHECK THE SAFE WALLET BALANCE MANUALLY. Do not assume funds were rescued.':''));
+          }
           else if(job.status==='broadcast'&&Date.now()-job.sentAt>120000){job.status='unconfirmed';await this.save();await this.notify(`${job.id}: private submission not confirmed after 2 minutes. Check hash manually before retrying.`)}
         }catch(e){console.error('Receipt check:',safeError(e))}
         continue;
