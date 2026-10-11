@@ -1,0 +1,25 @@
+{
+  "name": "base-bsc-dex-arbitrage-telegram-bot",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env bot.mjs",
+    "wallet:import": "node --env-file-if-exists=.env scripts/import-wallet.mjs",
+    "compile": "node scripts/compile.mjs",
+    "deploy": "node --env-file-if-exists=.env scripts/deploy.mjs",
+    "approve": "node --env-file-if-exists=.env scripts/approve.mjs",
+    "check": "node --env-file-if-exists=.env scripts/check.mjs",
+    "test": "node --test analysis.test.mjs tests/*.test.mjs"
+  },
+  "dependencies": {
+    "ethers": "6.17.0"
+  },
+  "devDependencies": {
+    "solc": "0.8.30",
+    "ganache": "7.9.2"
+  }
+}

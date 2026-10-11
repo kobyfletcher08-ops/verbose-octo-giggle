@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark"><title>Trading wallet</title>
+  <script src="https://telegram.org/js/telegram-web-app.js?64"></script>
+  <link rel="stylesheet" href="/wallet.css"><script type="module" src="/wallet.js"></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">BASE + BSC · PRIVATE BOT</p><h1>Trading wallet</h1>
+  <p class="intro">Set up your wallet here, then return to the chat to deploy and trade.</p>
+  <div id="status" role="status" aria-live="polite">Checking your Telegram account…</div>
+  <section id="setup" hidden>
+    <div class="tabs" role="group" aria-label="Wallet setup method"><button type="button" id="import-tab" class="selected">Import seed</button><button type="button" id="create-tab">Create wallet</button></div>
+    <form id="import-form" autocomplete="off">
+      <label for="phrase">Seed phrase</label><textarea id="phrase" rows="4" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="12, 15, 18, 21 or 24 English words" required></textarea>
+      <details><summary>Advanced account options</summary><label for="bip39">BIP-39 passphrase (optional)</label><input id="bip39" type="password" autocomplete="off"><label for="path">Derivation path</label><input id="path" value="m/44'/60'/0'/0/0" autocomplete="off" spellcheck="false"></details>
+      <button type="submit">Check wallet address</button>
+    </form>
+    <div id="create-form" hidden><p>A new 24-word wallet is generated on this device. Save its phrase before continuing.</p><button id="generate" type="button">Generate new wallet</button></div>
+    <div id="review" hidden>
+      <p class="label">Your wallet address</p><p id="address" class="address"></p>
+      <div id="new-seed" hidden><p class="label">Write down these 24 words in order</p><p id="generated-phrase" class="seed"></p><label class="check"><input type="checkbox" id="backed-up"> I saved this phrase outside Telegram.</label></div>
+      <form id="save-form" autocomplete="off">
+        <label for="password">Wallet encryption password</label><input id="password" type="password" minlength="12" maxlength="96" autocomplete="new-password" required placeholder="At least 12 characters">
+        <label for="repeat">Repeat password</label><input id="repeat" type="password" autocomplete="new-password" required>
+        <label class="check"><input type="checkbox" id="address-checked" required> This is the account I intend to trade from.</label>
+        <button type="submit">Save and unlock wallet</button>
+      </form>
+    </div>
+  </section>
+  <section id="existing" hidden><p id="existing-address" class="address"></p>
+    <form id="unlock-form" autocomplete="off"><label for="unlock-password">Wallet encryption password</label><input id="unlock-password" type="password" autocomplete="current-password" required><button type="submit">Unlock for this bot session</button></form>
+    <button id="backup" class="secondary" type="button">Download encrypted wallet backup</button>
+    <p>Use /lock in the chat to stop signing. A bot restart locks the wallet unless a password file was configured on the host.</p>
+  </section>
+  <button id="return" class="secondary" type="button" hidden>Return to bot</button>
+  <p class="note">The phrase is used only on this device and is never sent as a Telegram message. The derived private key and encryption password are encrypted for your bot’s server. The server holds the unlocked signing key while you trade. This wallet software is unaudited.</p>
+</main>
+</body></html>
