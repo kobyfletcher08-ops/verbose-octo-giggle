@@ -2,6 +2,7 @@ import {Wallet,Contract,JsonRpcProvider,keccak256,ZeroAddress,formatEther,parseU
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {ABI,IFACE,checkPackage,toJsonJob,parseHttps} from './common.mjs';
+import {ATLAS_ADDRESS,ATLAS_ABI,checkAtlasPackage,atlasToJob,atlasExecution} from './atlas.mjs';
 
 const DEFAULT_CHAINS = [
   {name:'ethereum',chainId:1,rpc:'https://ethereum-rpc.publicnode.com'},
@@ -47,11 +48,12 @@ export class RescueEngine {
     this.state.chains.push({name,chainId,rpc:url});await this.save();
   }
   async importPackage(json){
-    const p=checkPackage(json);if(p.delegateCodeHash!==this.runtimeHash)throw Error('Delegate hash does not match bot compiled Solidity: refusing to import');
+    const p=json?.version===2?checkAtlasPackage(json):checkPackage(json);
+    if(p.version!==2&&p.delegateCodeHash!==this.runtimeHash)throw Error('Delegate hash does not match bot compiled Solidity: refusing to import');
     if(!this.state.chains.some(c=>c.chainId===p.chainId))throw Error('Add chain before importing package');
     if(this.state.jobs.find(x=>x.id===p.id))throw Error('Package already imported');
     if(this.state.jobs.length>=100)throw Error('Maximum stored jobs is 100');
-    const item={...toJsonJob(p),status:'armed',submittedHash:null,createdAt:Date.now(),failures:0};
+    const item={...(p.version===2?atlasToJob(p):toJsonJob(p)),status:'armed',submittedHash:null,createdAt:Date.now(),failures:0};
     this.state.jobs.push(item);await this.save();return item;
   }
   async balance(job,provider){
@@ -63,14 +65,22 @@ export class RescueEngine {
     const {provider}=await this.chain(job.chainId);
     const now=BigInt(Math.floor(Date.now()/1000));if(BigInt(job.rescue.deadline)<now){job.status='expired';await this.save();return {balance:0n,ready:false,reason:'expired'}}
     const deployed=await provider.getCode(job.delegate);
-    if(deployed==='0x'||keccak256(deployed).toLowerCase()!==this.runtimeHash)throw Error('Delegate code mismatch/missing on configured chain');
+    const expectedHash=job.implementation==='atlas'?job.delegateCodeHash:this.runtimeHash;
+    if(deployed==='0x'||keccak256(deployed).toLowerCase()!==expectedHash)throw Error('Delegate code mismatch/missing on configured chain');
+    if(job.implementation==='atlas'&&job.delegate.toLowerCase()!==ATLAS_ADDRESS.toLowerCase())throw Error('Unrecognized Atlas implementation');
     const code=(await provider.getCode(job.owner)).toLowerCase();
     const delegated=('0xef0100'+job.delegate.slice(2)).toLowerCase();
-    if(code!=='0x'&&code!==delegated)throw Error('Owner has an unexpected EIP-7702 delegation');
-    if(code==='0x'){
+    if(job.implementation==='atlas'){
+      if(code!=='0x'&&!/^0xef0100[0-9a-f]{40}$/.test(code))throw Error('Owner contains non-7702 bytecode; cannot replace it');
+      const c=new Contract(job.owner,ATLAS_ABI,provider);
+      if(code===delegated&&await c.isNonceUsed(job.rescue.nonce)){job.status='done';await this.save();return {balance:0n,ready:false,reason:'already executed'}}
+      const currentNonce=await provider.getTransactionCount(job.owner,'pending');
+      if(BigInt(currentNonce)!==BigInt(job.auths[0].nonce))throw Error('Owner nonce advanced: dual authorization expired. Re-sign locally.');
+    }else if(code!=='0x'&&code!==delegated)throw Error('Owner has an unexpected EIP-7702 delegation');
+    if(job.implementation!=='atlas'&&code==='0x'){
       const ownerNonce=await provider.getTransactionCount(job.owner,'pending');
       if(BigInt(ownerNonce)!==BigInt(job.auth.nonce))throw Error('Owner nonce changed, re-sign rescue locally');
-    }else{
+    }else if(job.implementation!=='atlas'){
       const c=new Contract(job.owner,ABI,provider);
       if(await c.alreadyUsed(job.rescue.nonce)){job.status='done';await this.save();return {balance:0n,ready:false,reason:'already executed'}}
     }
@@ -103,10 +113,14 @@ export class RescueEngine {
       const maxCost=BigInt(this.env.RESCUE_MAX_GAS_COST_WEI||'15000000000000000');
       if(maxFee*gasLimit>maxCost)throw Error(`Gas budget cap exceeded: worst case ${formatEther(maxFee*gasLimit)} native units; set RESCUE_MAX_GAS_COST_WEI deliberately`);
       if(await provider.getBalance(wallet.address)<maxFee*gasLimit)throw Error('Gas-payer relayer has insufficient native balance');
-      const auth={address:job.auth.address,chainId:BigInt(job.auth.chainId),nonce:BigInt(job.auth.nonce),signature:job.auth.signature};
-      const data=IFACE.encodeFunctionData('rescue',[job.rescue.token,job.rescue.destination,BigInt(job.rescue.minAmount),BigInt(job.rescue.nonce),BigInt(job.rescue.deadline),job.rescue.signature]);
+      const atlas=job.implementation==='atlas';
+      const auth={address:job.auth?.address,chainId:BigInt(job.auth?.chainId||job.chainId),nonce:BigInt(job.auth?.nonce||0),signature:job.auth?.signature};
+      const authList=atlas?job.auths.map(a=>({address:a.address,chainId:BigInt(a.chainId),nonce:BigInt(a.nonce),signature:a.signature})):[auth];
+      const data=atlas?atlasExecution(job):IFACE.encodeFunctionData('rescue',[job.rescue.token,job.rescue.destination,BigInt(job.rescue.minAmount),BigInt(job.rescue.nonce),BigInt(job.rescue.deadline),job.rescue.signature]);
       const nonce=await provider.getTransactionCount(wallet.address,'pending');
-      const tx={type:status.delegated?2:4,chainId:job.chainId,nonce,to:job.owner,gasLimit,value:0n,data,maxFeePerGas:maxFee,maxPriorityFeePerGas:priority,...(status.delegated?{}:{authorizationList:[auth]})};
+      // Atlas jobs ALWAYS use a single type-4 transaction containing two consecutive 7702 auths.
+      // The first clears any old delegation; the second installs the verified Atlas code.
+      const tx={type:atlas?4:status.delegated?2:4,chainId:job.chainId,nonce,to:job.owner,gasLimit,value:0n,data,maxFeePerGas:maxFee,maxPriorityFeePerGas:priority,...(atlas?{authorizationList:authList}:status.delegated?{}:{authorizationList:authList})};
       const raw=await wallet.signTransaction(tx);const localHash=keccak256(raw);
       // Record BEFORE broadcast so any ambiguous network failure requires manual investigation.
       job.status='submitting';job.submittedHash=localHash;this.state.attempts=todays.concat([{id:job.id,at:now,hash:localHash}]);await this.save();

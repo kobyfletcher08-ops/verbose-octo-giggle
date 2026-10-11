@@ -109,3 +109,36 @@ If a private RPC accepts a transaction but it doesn't confirm, the bot marks it 
 * [Ethers v6 EIP-7702 authorization](https://docs.ethers.org/v6/single-page/)
 * [Flashbots Protect private RPC](https://docs.flashbots.net/flashbots-protect/quick-start)
 * [Render custom Blueprint paths](https://render.com/changelog/blueprints-now-support-custom-filenames-and-paths)
+
+## 5. Use an existing published Atlas implementation (atomic undelegate → redelegate)
+
+**Optional alternative to our included, unaudited RescueDelegate.sol.** The [Byzantine Atlas contract](https://github.com/Byzantine-Finance/Atlas/blob/main/src/Atlas.sol) publishes a Cantina audit and sponsored EIP-712 signed execution. Its **project-reported** CREATE2 deployment address is:
+
+`0x3d965CFdDA791589cCAB955498D509f2F7E30b79`
+
+**Check the deployed bytecode and source independently on your chosen chain** (Ethereum, Base, BSC or custom); an address being the same on multiple chains DOES NOT prove deployment or identical bytecode. The local signer requires an explicitly supplied independent `--expected-codehash`, compares it to the live target, and the Render bot pins the observed hash from the signed job. Verify that the contract matches the audited version; the presence of an audit doesn't guarantee safety. Do not use arbitrary or unverified delegate addresses.
+
+The dual-authorization sequence is constructed **locally**, signed by the source EOA and packaged with an independently signed EIP-712 Atlas `ExecuteCall` instruction. An unrelated, funded relayer sends **one** type-4 transaction with authorizations in strict order: `(chainId, 0x000...000, nonce=n)` (clear existing delegation) then `(chainId, AtlasAddress, nonce=n+1)` (set new implementation), followed by `executeCall` to the EOA. Both authorizations are applied during transaction authorization processing before execution, without any separate on-chain transaction or public mempool gap. If execution reverts, **the authorization changes are NOT reverted**. EIP-7702 authorization transactions do NOT erase contract storage. The source wallet's original private key still controls the wallet and can be used by an attacker to redelegate again.
+
+Unlike the original delegate's dynamic whole-balance sweep, Atlas allows us to sign **an exact amount of native coin or one standard ERC-20**. Automatic monitoring triggers once that fixed raw-unit amount exists, then the relayer executes the pre-authorized transfer. New deposits require fresh signed packages for amounts not already authorized. This is not a perpetual unrestricted sweeping grant, nor guaranteed victory in an attacker race.
+
+From a trusted local machine in the repository root, after `npm ci`:
+
+```bash
+# Obtain expected hash from independently verified deployed Atlas code on this chain.
+# Keep the OWNER private key ONLY in your local environment, not Render or Telegram.
+node rescue/atlas-prepare.mjs \
+  --rpc https://mainnet.base.org --chain 8453 \
+  --safe 0xYOUR_NEW_SAFE_WALLET \
+  --token native --amount 100000000000000 \
+  --expected-codehash 0xYOUR_INDEPENDENTLY_VERIFIED_ATLAS_RUNTIME_KECCAK256 \
+  --hours 24 --out rescue-atlas-base.json
+```
+
+`--amount` is a **fixed unsigned integer in smallest native/token units**. Example above is 0.0001 native ETH. For ERC-20, use its token contract address in `--token` and a fixed raw-unit amount for the standard `transfer(to, amount)` call (this will not work for unusual tokens requiring special transfer mechanics). A checked package **never contains a wallet private key**.
+
+Upload the signed `rescue-atlas-base.json` to the existing owner-only Telegram bot, then use `/check ID` and `/watch on`. Keep `/mode paper` until you have verified the implementation and tested with a fresh testnet wallet. The bot detects the package `version: 2` and submits Atlas via the same configured private relay as the original rescue bot. No public-broadcast fallback is introduced.
+
+**Important:** If the compromised wallet sends another transaction (including an attacker transaction) between local signing and your rescue inclusion, the authorization nonces can become invalid. The bot checks the current nonce, refuses stale authorizations and requires new local signatures. Neither Ethereum private routing nor a type-4 transaction can guarantee the first included transaction. Custom chains require both EIP-7702 support and a private RPC that accepts type-4 `eth_sendRawTransaction` with multiple authorizations.
+
+Atlas source/audit: https://github.com/Byzantine-Finance/Atlas . Formal authorization semantics: https://eips.ethereum.org/EIPS/eip-7702 .

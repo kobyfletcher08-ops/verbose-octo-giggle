@@ -9,7 +9,7 @@ const tg=new Telegram(env.RESCUE_BOT_TOKEN);
 const engine=new RescueEngine({stateFile:env.RESCUE_STATE_FILE||'data/rescue-state.json'});await engine.init();
 engine.notify=(s)=>tg.send(OWNER,s).catch(e=>console.error('Telegram:',safeError(e)));
 let offset=0,stopped=false,ticking=false;
-const help=`Self Rescue 7702 — owner-only bot\n\n/chains — list preset/custom EVM chains\n/chainadd NAME CHAINID HTTPS_PUBLIC_RPC — add chain\n/chaindel CHAINID — remove unused chain\n/import — upload a signed rescue-*.json document here\n/jobs — view rescue packages\n/check ID — check balance/authorization\n/watch on|off — toggle automatic monitoring\n/mode paper|live — change mode (live also needs ENABLE_RESCUE_LIVE=true)\n/execute ID — private-submit one armed rescue in live mode\n/status — service details\n/pause — disable watcher / switch to paper\n\nOwner key/seed phrases must NEVER enter Telegram or Render. Locally run rescue/prepare.mjs to generate a single-use signed rescue package. The relayer key ONLY pays gas. Private broadcast only; no public fallback.`;
+const help=`Self Rescue 7702 — owner-only bot\n\n/chains — list preset/custom EVM chains\n/chainadd NAME CHAINID HTTPS_PUBLIC_RPC — add chain\n/chaindel CHAINID — remove unused chain\n/import — upload a signed rescue-*.json document here (Atlas v2 supported)\n/jobs — view rescue packages\n/check ID — check balance/authorization\n/watch on|off — toggle automatic monitoring\n/mode paper|live — change mode (live also needs ENABLE_RESCUE_LIVE=true)\n/execute ID — private-submit one armed rescue in live mode\n/status — service details\n/pause — disable watcher / switch to paper\n\nOwner key/seed phrases must NEVER enter Telegram or Render. Locally run rescue/prepare.mjs to generate a single-use signed rescue package. The relayer key ONLY pays gas. Private broadcast only; no public fallback.`;
 async function respond(text){await tg.send(OWNER,String(text).slice(0,3900))}
 async function handle(update){
   const msg=update.message;
@@ -22,7 +22,7 @@ async function handle(update){
     if(!r.ok)throw Error('Could not read uploaded JSON');
     const raw=await r.text();if(raw.length>40000)throw Error('JSON package too large');
     const job=await engine.importPackage(JSON.parse(raw));
-    await respond(`Imported signed rescue job ${job.id}\nWallet: ${job.owner}\nSafe: ${job.rescue.destination}\nAsset: ${job.rescue.token}\nChain ID: ${job.chainId}\nStatus: armed\nNo transaction was sent. /watch on to monitor.`);return;
+    await respond(`Imported signed rescue job ${job.id}\nWallet: ${job.owner}\nSafe: ${job.rescue.destination}\nAsset: ${job.rescue.token}\nChain ID: ${job.chainId}\nMode: ${job.implementation==='atlas'?'ATLAS atomic clear/redelegate':'custom rescue delegate'}\nStatus: armed\nNo transaction was sent. /watch on to monitor.`);return;
   }
   if(!cmd)return;
   switch(cmd.toLowerCase().split('@')[0]){
@@ -39,7 +39,7 @@ async function handle(update){
     }
     case '/jobs':return respond(engine.state.jobs.length?engine.state.jobs.map(x=>`${x.id} | ${x.status} | chain ${x.chainId} | ${x.rescue.token==='0x0000000000000000000000000000000000000000'?'NATIVE':x.rescue.token} | owner ${x.owner}`).join('\n'):'No jobs. Generate a signed package locally, then upload JSON as a document.');
     case '/check':{
-      const job=engine.state.jobs.find(j=>j.id===args[0]);if(!job)throw Error('Unknown job ID');const data=await engine.checkJob(job);return respond(`Job ${job.id}\nStatus: ${job.status}\nBalance: ${data.balance} raw units\nThreshold: ${job.rescue.minAmount}\nReady: ${data.ready}\nDelegated: ${Boolean(data.delegated)}`);
+      const job=engine.state.jobs.find(j=>j.id===args[0]);if(!job)throw Error('Unknown job ID');const data=await engine.checkJob(job);return respond(`Job ${job.id}\nStatus: ${job.status}\nBalance: ${data.balance} raw units\nFixed signed amount: ${job.rescue.minAmount}\nReady: ${data.ready}\nDelegated to target: ${Boolean(data.delegated)}\nImplementation: ${job.implementation||'self-rescue'}`);
     }
     case '/watch':if(!['on','off'].includes(args[0]))throw Error('Use /watch on or /watch off');engine.state.watch=args[0]==='on';await engine.save();return respond(`Automatic monitoring ${args[0]}. Mode: ${engine.state.mode}.`);
     case '/mode':if(!['paper','live'].includes(args[0]))throw Error('Use /mode paper or /mode live');
