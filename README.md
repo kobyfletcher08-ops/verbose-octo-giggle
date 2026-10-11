@@ -144,3 +144,10 @@ npm run compile
 ```
 
 Tests use local mock DEXs/tokens/lender and a local EVM, a mocked Telegram API, and an authenticated local wallet server. No real keys, Telegram account, mainnet deployment or trade are used. Ganache may fall back to its JavaScript implementation on newer Node versions. Mainnet integration and profitability remain unverified. See [VALIDATION.md](VALIDATION.md) and [SOURCES.md](SOURCES.md).
+
+
+## EIP-7702 Telegram auto-rescue bot (separate Render service)
+
+A separate [owner-controlled EIP-7702 rescue bot](rescue/README.md) supports Ethereum, Base, BSC and custom EIP-7702-compatible EVM chains. Signed one-time recovery packages are created locally; only a distinct gas-paying relayer is configured on Render. The rescue bot monitors balances and can submit private transactions through an explicitly configured private RPC, without any public fallback. Live mode is disabled by default. **Experimental and unaudited; EIP-7702 does not prevent an attacker who controls the original private key from racing or replacing delegated code.**
+
+For Render, use the custom Blueprint Path **`rescue/render.yaml`** instead of the root trading-bot Blueprint. Read the [full rescue setup and security requirements](rescue/README.md) before authorizing any wallet.
